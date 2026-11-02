@@ -16,6 +16,11 @@ Ask-Pothole aims to address this problem through computer vision and deep learni
 
 The system also features a custom Heads-Up Display (HUD) that presents detection results, tracking information, lane statistics, and driving recommendations.
 
+The project has two parts:
+
+1. **Model training & evaluation** — a notebook that trains and evaluates the pothole detector (`best.pt`). See [Model Training & Evaluation](#-model-training--evaluation).
+2. **Detection & guidance pipeline** — `pothole_detection.py`, which uses `best.pt` on road video. See [Getting Started](#-getting-started).
+
 ## ✨ Key Features
 
 ### 1. Deep Learning-Based Pothole Detection
@@ -24,6 +29,7 @@ The system also features a custom Heads-Up Display (HUD) that presents detection
 - Generates bounding boxes and confidence scores for detected potholes.
 - Configurable confidence threshold and inference image size.
 - Highlights detected potholes using custom targeting-style bounding boxes.
+- Model reaches **0.938 mAP50 / 0.676 mAP50-95** on the held-out test set (see [results](#-results)).
 
 ### 2. Multi-Object Tracking with ByteTrack
 
@@ -104,12 +110,79 @@ The output is rendered on a consistent **1280 × 720 (16:9)** canvas while prese
 
 ---
 
+## 🧠 Model Training & Evaluation
+
+The detector (`best.pt`) is trained and evaluated end to end in a single Colab notebook:
+[`notebooks/pothole_yolo_train_eval.ipynb`](notebooks/pothole_yolo_train_eval.ipynb)
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ShreyaIlamurugu/Ask-pothole/blob/main/notebooks/pothole_yolo_train_eval.ipynb)
+
+The notebook covers: setup and GPU check → dataset download → label sanity checks → dataset YAML → training → validation and test evaluation → sample predictions → saving metrics and weights.
+
+### Dataset
+
+[Pothole Detection Dataset: YOLOv11 Optimized](https://www.kaggle.com/datasets/muskanverma24/pothole-detection-dataset-yolov11-optimized) (Kaggle, from Roboflow project `vasanthakumar662005/pothole-pq3lu`, licence CC BY 4.0).
+
+| Split      | Images |
+| ---------- | -----: |
+| Train      |  3,345 |
+| Validation |    397 |
+| Test       |    198 |
+
+One class (`pothole`), YOLO-format labels, 10,111 annotated boxes in total, no malformed label lines. The notebook downloads the data itself — **no images are stored in this repo.**
+
+### Training configuration
+
+| Parameter       | Value        | Purpose                      |
+| --------------- | ------------ | ---------------------------- |
+| Initial weights | `yolo26n.pt` | Starting model (2.39 M params, 5.4 GFLOPs) |
+| epochs          | 50           | Maximum training epochs      |
+| patience        | 10           | Early-stopping patience      |
+| imgsz           | 640          | Input image size (px)        |
+| batch           | -1           | Automatic batch size         |
+| workers         | 2            | Data-loading workers         |
+| seed            | 42           | Reproducibility              |
+
+Hardware: Google Colab, Tesla T4 GPU, Ultralytics 8.4.191.
+
+### 📈 Results
+
+Best weights, evaluated at 640 px:
+
+| Split                  | Precision | Recall | mAP50 | mAP50-95 |
+| ---------------------- | --------: | -----: | ----: | -------: |
+| Validation (973 boxes) |     0.895 |  0.867 | 0.934 |    0.668 |
+| Test (433 boxes)       |     0.913 |  0.872 | 0.938 |    0.676 |
+
+Inference speed: about 5 ms per image on the T4. The notebook writes the exact figures of every run to `metrics.json`.
+
+<!-- After a run, copy the plots from the notebook's outputs/ folder into results/ and uncomment: -->
+<!-- ![Training curves](results/results.png) -->
+<!-- ![Confusion matrix](results/confusion_matrix.png) -->
+
+### How to reproduce
+
+1. Open the notebook in Colab (badge above) and select `Runtime ▸ Change runtime type ▸ T4 GPU`.
+2. Create a [Kaggle API token](https://www.kaggle.com/settings) and paste it when prompted (or save it as a Colab Secret named `KAGGLE_API_TOKEN`).
+3. `Runtime ▸ Run all` (roughly 20–40 min on a T4).
+4. Download `best.pt` and place it in the repository root.
+
+Optional command-line equivalent (after writing the dataset YAML as the notebook does):
+
+```bash
+yolo detect train data=pothole.yaml model=yolo26n.pt epochs=50 imgsz=640 patience=10 seed=42
+```
+
+---
+
 ## 🛠️ Technology Stack
 
 | Technology         | Purpose                                 |
 | ------------------ | --------------------------------------- |
 | Python             | Core implementation                     |
-| YOLO (Ultralytics) | Pothole detection                       |
+| YOLO (Ultralytics) | Pothole detection (training and inference) |
+| Kaggle API         | Dataset download                        |
+| Google Colab (T4)  | Model training                          |
 | ByteTrack          | Multi-object tracking                   |
 | OpenCV             | Video processing and HUD rendering      |
 | NumPy              | Numerical operations                    |
@@ -131,7 +204,7 @@ The project follows this processing pipeline:
           FRAME RESIZING & FITTING
                     |
                     v
-          YOLO POTHOLE DETECTION
+          YOLO POTHOLE DETECTION   <-- best.pt (trained in the notebook)
                     |
                     v
           BYTETRACK OBJECT TRACKING
@@ -161,15 +234,22 @@ The project follows this processing pipeline:
 ```text
 Ask-pothole/
 │
+├── notebooks/
+│   └── pothole_yolo_train_eval.ipynb   # train + evaluate the detector
+│
+├── results/                            # metrics.json, training curves, confusion matrix, sample predictions
+│
 ├── Videos/
 │   ├── video_11.mp4
 │   ├── video_12.mp4
 │   └── video_13.mp4
 │
-├── best.pt
-├── pothole_detection.py
+├── best.pt                             # trained weights
+├── pothole_detection.py                # detection + tracking + lane guidance + HUD
+├── requirements.txt
+├── .gitignore
 ├── README.md
-└── pothole_hud_output.mp4
+└── pothole_hud_output.mp4              # generated when the application runs
 ```
 
 _The output video is generated when the application runs. It does not need to be present beforehand._
@@ -180,7 +260,7 @@ _The output video is generated when the application runs. It does not need to be
 
 - Python 3.9 or later
 - pip package manager
-- A trained YOLO model (`best.pt`)
+- A trained YOLO model (`best.pt`) — included, or train your own with the [notebook](#-model-training--evaluation)
 - A road video for processing
 
 ### 1. Clone the Repository
@@ -196,8 +276,10 @@ cd Ask-pothole
 ### 2. Install Dependencies
 
 ```bash
-pip install ultralytics opencv-python numpy
+pip install -r requirements.txt
 ```
+
+(or: `pip install ultralytics opencv-python numpy`)
 
 ### 3. Configure the Input Video
 
@@ -247,6 +329,8 @@ The application will:
 7. Display the annotated video.
 8. Save the processed video as `pothole_hud_output.mp4`.
 
+> The live preview uses OpenCV windows, so run this locally rather than in Colab.
+
 ### Keyboard Controls
 
 | Key     | Action          |
@@ -294,6 +378,7 @@ The application generates an annotated road video with:
 - Lane recommendations consider detected pothole risk but do not account for surrounding traffic, pedestrians, road rules, or other driving hazards.
 - Tracking performance depends on detection quality and object visibility.
 - Performance depends on the available CPU/GPU hardware and video resolution.
+- The detector is trained on a single public dataset (3,345 training images); accuracy may drop on unseen road types, lighting, or camera angles. Reported metrics come from one training run (seed 42).
 
 **Safety Disclaimer:** This project is an experimental computer vision prototype developed for academic and demonstration purposes. Its directional recommendations should not be treated as autonomous driving instructions or as a substitute for driver judgement.
 
@@ -307,8 +392,14 @@ The application generates an annotated road video with:
 - Audio and visual driver alerts.
 - Improved lane-risk assessment using road geometry and surrounding traffic.
 - Deployment on embedded hardware for real-world ADAS applications.
+- Larger and more varied training data (night, rain, different cameras) and a larger YOLO model variant.
 
 ---
+
+## 📄 Licence & Credits
+
+- Dataset: [Pothole Detection Dataset: YOLOv11 Optimized](https://www.kaggle.com/datasets/muskanverma24/pothole-detection-dataset-yolov11-optimized), CC BY 4.0 — credit the original Roboflow project `vasanthakumar662005/pothole-pq3lu`.
+- Detection framework: [Ultralytics YOLO](https://docs.ultralytics.com).
 
 ## 👥 Project Information
 
