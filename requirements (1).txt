@@ -1,0 +1,5 @@
+ultralytics>=8.4
+opencv-python-headless
+kaggle
+pandas
+pyyaml
